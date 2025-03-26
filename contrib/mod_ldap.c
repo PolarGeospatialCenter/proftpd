@@ -944,6 +944,9 @@ static struct passwd *pr_ldap_user_lookup(pool *p, char *filter_template,
               "LDAPDefaultGID Auto in effect but user name is missing");
             return NULL;
           }
+
+        } else {
+          pw->pw_gid = ldap_defaultgid;
         }
         ++i;
 
