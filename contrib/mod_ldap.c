@@ -415,7 +415,7 @@ static int do_ldap_bind(LDAP *conn_ld) {
   int res;
   int tries = 0;
   while(tries < retry_limit) {
-    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION, "ldap bind try number %d", tries);
+    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION, "LDAP bind attempt %d of %d", tries, retry_limit);
 #if defined(HAS_LDAP_SASL_INTERACTIVE_BIND_S)
   if (ldap_sasl_mechs != NULL) {
     int sasl_flags;
@@ -465,6 +465,10 @@ static int do_ldap_bind(LDAP *conn_ld) {
       "bind as DN '%s' failed for '%s': %s",
       ldap_dn ? ldap_dn : "(anonymous)", curr_server_info->info_text,
       ldap_err2string(res));
+      if (res == LDAP_INVALID_CREDENTIALS) {
+        (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION, "invalid credentials, aborting further bind attempts");
+        return -1;
+      }
       (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION, "retrying bind");
   } else {
     break;
@@ -473,7 +477,7 @@ static int do_ldap_bind(LDAP *conn_ld) {
   tries += 1;
   } 
   if(tries >= retry_limit) {
-    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION, "number of tries exceeded, aborting");
+    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION, "number of tries exceeded, aborting further bind attempts");
     return -1;
   } else {
     (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,
@@ -1913,7 +1917,7 @@ MODRET ldap_auth_check(cmd_rec *cmd) {
     }
   int tries = 0;
   while(tries < retry_limit) {
-    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION, "ldap auth check try number %d", tries);
+    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION, "ldap authentication attempt %d of %d", tries, retry_limit);
 #ifdef HAS_LDAP_SASL_BIND_S
     bindcred.bv_val = cmd->argv[2];
     bindcred.bv_len = strlen(cmd->argv[2]);
@@ -1928,8 +1932,11 @@ MODRET ldap_auth_check(cmd_rec *cmd) {
           (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,
             "unable to check login: bind as %s failed: %s", ldap_authbind_dn,
             ldap_err2string(res));
+        } else {
+          (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION, "bind failed: %s", ldap_err2string(res));
+          LDAP_UNBIND(ld_auth);
+          return PR_ERROR(cmd);
         }
-        (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION, "retrying auth check");
       } else {
         break;
       }
@@ -1938,7 +1945,7 @@ MODRET ldap_auth_check(cmd_rec *cmd) {
     }
     if(tries >= retry_limit) {
       (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,
-        "invalid credentials used for %s", ldap_authbind_dn);
+        "retry limit exceeded for %s", ldap_authbind_dn);
       LDAP_UNBIND(ld_auth);
       return PR_ERROR(cmd);
     } else {
